@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace SilverShop\Model;
 
 use SilverStripe\ORM\DataObject;
@@ -50,6 +52,7 @@ class OrderAttribute extends DataObject
         if (!$this->isInDB()) {
             return true;
         }
+
         return $this->Order()->exists() && $this->Order()->IsCart();
     }
 
@@ -75,5 +78,16 @@ class OrderAttribute extends DataObject
         $showInTable = true;
         $this->extend('updateShowInTable', $showInTable);
         return $showInTable;
+    }
+
+    /**
+     * Fix for PHP 8.1+ crash when query parameters contain null keys.
+     *
+     * @return array
+     */
+    public function getInheritableQueryParams(): array
+    {
+        $params = (array) parent::getInheritableQueryParams();
+        return array_filter($params, fn($key) => $key !== null, ARRAY_FILTER_USE_KEY);
     }
 }

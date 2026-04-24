@@ -1,10 +1,13 @@
 <?php
 
+declare(strict_types=1);
+
 namespace SilverShop\Tests\Page;
 
 use SilverShop\Model\Address;
 use SilverShop\Page\AccountPage;
 use SilverShop\Page\AccountPageController;
+use SilverShop\Tests\ShopTest;
 use SilverShop\Tests\ShopTestControllerExtension;
 use SilverStripe\Control\Controller;
 use SilverStripe\Control\Director;
@@ -16,84 +19,84 @@ use SilverStripe\Security\Member;
 use SilverStripe\Security\Security;
 use SilverStripe\SiteConfig\SiteConfig;
 
-class AccountPageTest extends FunctionalTest
+final class AccountPageTest extends FunctionalTest
 {
     protected static $fixture_file = [
         __DIR__ . '/../Fixtures/Pages.yml',
         __DIR__ . '/../Fixtures/shop.yml',
     ];
+
     protected static bool $disable_theme = true;
-    protected static bool $use_draft_site = true;
 
     protected AccountPage $accountpage;
+
     protected AccountPageController $controller;
 
-    public function setUp(): void
+    protected function setUp(): void
     {
+        ShopTest::setConfiguration();
         parent::setUp();
 
         Controller::add_extension(ShopTestControllerExtension::class);
-        $this->accountpage = $this->objFromFixture(AccountPage::class, "accountpage");
+        $this->accountpage = $this->objFromFixture(AccountPage::class, 'accountpage');
         $this->accountpage->publishSingle();
+
         $this->controller = AccountPageController::create($this->accountpage);
 
         $httpRequest = new HTTPRequest('GET', '/');
         $httpRequest->setSession($this->session());
-
         $this->controller->setRequest($httpRequest);
     }
 
     public function testCanViewAccountPage(): void
     {
-        $page = $this->get("account/");  // attempt to access the Account Page
-        $this->assertEquals(200, $page->getStatusCode(), "a page should load");
+        $page = $this->get('account/');
+        $this->assertEquals(200, $page->getStatusCode(), 'a page should load');
         $this->assertTrue(
-            $page->getHeader('X-TestPageClass') == Security::class && $page->getHeader('X-TestPageAction') == 'login',
-            'Need to login before accessing the account page'
+            $page->getHeader('X-TestPageClass') === Security::class && $page->getHeader('X-TestPageAction') === 'login',
+            'Unauthenticated users must be redirected to login before accessing the account page'
         );
 
         // login using form
         $this->submitForm(
-            "MemberLoginForm_LoginForm",
-            "action_doLogin",
+            'MemberLoginForm_LoginForm',
+            'action_doLogin',
             [
-                'Email' => 'test@example.com',
+                'Email'    => 'test@example.com',
                 'Password' => '23u90oijlJKsa',
             ]
         );
 
-        $page = $this->get("account/");  // try accessing the account page again
-        $this->assertEquals(200, $page->getStatusCode(), "a page should load");
-
-        $this->assertEquals(AccountPageController::class, $page->getHeader('X-TestPageClass'), "Account Page should open");
+        $page = $this->get('account/');
+        $this->assertEquals(200, $page->getStatusCode(), 'a page should load');
+        $this->assertEquals(AccountPageController::class, $page->getHeader('X-TestPageClass'), 'Account Page should open');
     }
 
     public function testGlobals(): void
     {
-        $this->assertFalse($this->accountpage->canCreate(), "account page exists");
-        $this->assertEquals(Controller::join_links(Director::baseURL() . "account"), AccountPage::find_link());
-        $this->assertEquals(Controller::join_links(Director::baseURL() . "account/order/10"), AccountPage::get_order_link(10));
+        $this->assertFalse($this->accountpage->canCreate(), 'account page exists');
+        $this->assertEquals(Controller::join_links(Director::baseURL() . 'account'), AccountPage::find_link());
+        $this->assertEquals(Controller::join_links(Director::baseURL() . 'account/order/10'), AccountPage::get_order_link(10));
     }
 
     public function testAddressBook(): void
     {
-        $member = $this->objFromFixture(Member::class, "joebloggs");
+        $member = $this->objFromFixture(Member::class, 'joebloggs');
         $this->logInAs($member);
 
-        $address = $this->objFromFixture(Address::class, "foobar");
+        $address = $this->objFromFixture(Address::class, 'foobar');
         $address->MemberID = $member->ID;
         $address->write();
 
-        $this->controller->init();
+        $this->controller->doInit();
         $forms = $this->controller->addressbook();
-        $createform = $forms['CreateAddressForm'];
+        $createform  = $forms['CreateAddressForm'];
         $defaultform = $forms['DefaultAddressForm'];
         $this->assertTrue($member->AddressBook()->exists());
+        $this->assertTrue((bool) $createform, 'Create form exists');
+        $this->assertTrue((bool) $defaultform, 'Default form exists');
 
-        $this->assertTrue((boolean)$createform, "Create form exists");
-        $this->assertTrue((boolean)$defaultform, "Default form exists");
-
-        $page = $this->get('account/addressbook');
+        $page = $this->get('account/addressbook/');
         $this->assertEquals(200, $page->getStatusCode(), 'a page should load');
 
         $this->submitForm(
@@ -101,15 +104,15 @@ class AccountPageTest extends FunctionalTest
             'action_saveaddress',
             [
                 'Address' => '123 Fake Street',
-                'City' => 'Faketown',
-                'State' => 'Greenland',
+                'City'    => 'Faketown',
+                'State'   => 'Greenland',
                 'Country' => 'US',
             ]
         );
         $savedAddress = Address::get()->filter(
             [
                 'MemberID' => $member->ID,
-                'Address' => '123 Fake Street',
+                'Address'  => '123 Fake Street',
             ]
         )->first();
         $this->assertNotNull($savedAddress, 'Address should be saved');
@@ -120,17 +123,8 @@ class AccountPageTest extends FunctionalTest
         $this->assertEquals(200, $page->getStatusCode(), 'a page should load');
 
         $member_updated = Member::get()->byID($member->ID);
-
-        $this->assertEquals(
-            $savedAddress->ID,
-            $member_updated->DefaultShippingAddressID,
-            'Default shipping address should be set'
-        );
-        $this->assertEquals(
-            $savedAddress->ID,
-            $member_updated->DefaultBillingAddressID,
-            'Default billing address should be set'
-        );
+        $this->assertEquals($savedAddress->ID, $member_updated->DefaultShippingAddressID, 'Default shipping address should be set');
+        $this->assertEquals($savedAddress->ID, $member_updated->DefaultBillingAddressID, 'Default billing address should be set');
     }
 
     public function testAddressBookWithDropdownFieldToSelectCountry(): void
@@ -142,39 +136,29 @@ class AccountPageTest extends FunctionalTest
                 $member = $this->objFromFixture(Member::class, 'joebloggs');
                 $this->logInAs($member);
 
-                // Open Address Book page
-                $httpResponse = $this->get('account/addressbook/'); // goto address book page
+                $httpResponse = $this->get('account/addressbook/');
                 $this->assertEquals(200, $httpResponse->getStatusCode(), 'a page should load');
                 $this->assertEquals(AccountPageController::class, $httpResponse->getHeader('X-TestPageClass'), 'Account page should open');
                 $this->assertEquals('addressbook', $httpResponse->getHeader('X-TestPageAction'), 'Account addressbook should open');
 
-                // Create an address
                 $this->submitForm(
                     'Form_CreateAddressForm',
                     'action_saveaddress',
                     [
-                        'Country' => 'AU',
-                        'Address' => 'Sydney Opera House',
+                        'Country'      => 'AU',
+                        'Address'      => 'Sydney Opera House',
                         'AddressLine2' => 'Bennelong Point',
-                        'City' => 'Sydney',
-                        'State' => 'NSW',
-                        'PostalCode' => '2000',
-                        'Phone' => '1234 5678',
+                        'City'         => 'Sydney',
+                        'State'        => 'NSW',
+                        'PostalCode'   => '2000',
+                        'Phone'        => '1234 5678',
                     ]
                 );
                 $this->assertEquals(200, $httpResponse->getStatusCode(), 'a page should load');
 
-                $au_address = Address::get()->filter('PostalCode', '2000')->sort('ID')->last();
-                $this->assertEquals(
-                    'AU',
-                    $au_address->Country,
-                    'New address successfully saved, using dropdown to select the country'
-                );
-                $this->assertEquals(
-                    'Sydney Opera House',
-                    $au_address->Address,
-                    'Ensure that the Address is the Sydney Opera House'
-                );
+                $au_address = Address::get()->filter(['PostalCode' => '2000'])->sort(['ID' => 'ASC'])->last();
+                $this->assertEquals('AU', $au_address->Country, 'New address successfully saved, using dropdown to select the country');
+                $this->assertEquals('Sydney Opera House', $au_address->Address, 'Ensure that the Address is the Sydney Opera House');
             }
         );
     }
@@ -188,19 +172,14 @@ class AccountPageTest extends FunctionalTest
                 $member = $this->objFromFixture(Member::class, 'joebloggs');
                 $this->logInAs($member);
 
-                // setup a single-country site
                 $siteconfig = DataObject::get_one(SiteConfig::class);
                 $siteconfig->AllowedCountries = '["NZ"]';
                 $siteconfig->write();
-                $singlecountry = SiteConfig::current_site_config();
-                $this->assertEquals(
-                    'NZ',
-                    $singlecountry->getSingleCountry(),
-                    'Confirm that the website is setup as a single country site'
-                );
 
-                // Open the Address Book page to test form submission with a readonly field
-                $httpResponse = $this->get('account/addressbook/'); // goto address book page
+                $singlecountry = SiteConfig::current_site_config();
+                $this->assertEquals('NZ', $singlecountry->getSingleCountry(), 'Confirm that the website is setup as a single country site');
+
+                $httpResponse = $this->get('account/addressbook/');
                 $this->assertEquals(200, $httpResponse->getStatusCode(), 'a page should load');
                 $this->assertStringContainsString(
                     'Form_CreateAddressForm_Country_readonly',
@@ -213,30 +192,21 @@ class AccountPageTest extends FunctionalTest
                     'Dropdown field is not shown'
                 );
 
-                // Create an address
                 $this->submitForm(
                     'Form_CreateAddressForm',
                     'action_saveaddress',
                     [
-                        'Address' => '234 Hereford Street',
-                        'City' => 'Christchurch',
-                        'State' => 'Canterbury',
+                        'Address'    => '234 Hereford Street',
+                        'City'       => 'Christchurch',
+                        'State'      => 'Canterbury',
                         'PostalCode' => '8011',
                     ]
                 );
                 $this->assertEquals(200, $httpResponse->getStatusCode(), 'a page should load');
 
-                $nz_address = Address::get()->filter('PostalCode', '8011')->sort('ID')->last();
-                $this->assertEquals(
-                    'NZ',
-                    $nz_address->Country,
-                    'New address successfully saved; even with a Country readonly field in the form'
-                );
-                $this->assertEquals(
-                    '234 Hereford Street',
-                    $nz_address->Address,
-                    'Ensure that the Address is 234 Hereford Street'
-                );
+                $nz_address = Address::get()->filter(['PostalCode' => '8011'])->sort(['ID' => 'ASC'])->last();
+                $this->assertEquals('NZ', $nz_address->Country, 'New address successfully saved; even with a Country readonly field in the form');
+                $this->assertEquals('234 Hereford Street', $nz_address->Address, 'Ensure that the Address is 234 Hereford Street');
             }
         );
     }
@@ -246,35 +216,52 @@ class AccountPageTest extends FunctionalTest
         $member = $this->objFromFixture(Member::class, 'joebloggs');
         $this->logInAs($member);
 
-        $page = $this->get('account/editprofile/'); // goto address book page
-        $this->assertEquals(200, $page->getStatusCode(), 'a page should load');
+        $page = $this->get('account/editprofile/');
+        $this->assertEquals(200, $page->getStatusCode(), 'editprofile page should load');
 
-        $this->submitForm(
+        $editFormResponse = $this->submitForm(
             'ShopAccountForm_EditAccountForm',
             'action_submit',
-            [
-                'FirstName' => 'UpdatedName',
-            ]
+            ['FirstName' => 'UpdatedName']
         );
+
         $member = Security::getCurrentUser();
         $this->assertEquals('UpdatedName', $member->FirstName, 'First name should be updated');
 
-        $page = $this->submitForm(
+        // GET a fresh editprofile page to ensure ChangePasswordForm is rendered
+        $freshPage = $this->get('account/editprofile/');
+
+        // Detect framework version by checking which password fields are rendered:
+        // SS 6.1+: ConfirmedPasswordField renders Password[_CurrentPassword] / Password[_Password] / Password[_ConfirmPassword]
+        // SS 6.0:  flat fields OldPassword / NewPassword1 / NewPassword2
+        $body = $freshPage->getBody();
+        if (str_contains($body, 'Password[_CurrentPassword]') || str_contains($body, 'name="Password[_CurrentPassword]"')) {
+            // SS 6.1+ ConfirmedPasswordField
+            $passwordData = [
+                'Password[_CurrentPassword]' => '23u90oijlJKsa',
+                'Password[_Password]'         => 'newpassword123!?',
+                'Password[_ConfirmPassword]'  => 'newpassword123!?',
+            ];
+        } else {
+            // SS 6.0 flat fields
+            $passwordData = [
+                'OldPassword'  => '23u90oijlJKsa',
+                'NewPassword1' => 'newpassword123!?',
+                'NewPassword2' => 'newpassword123!?',
+            ];
+        }
+
+        $changeResponse = $this->submitForm(
             'ChangePasswordForm_ChangePasswordForm',
             'action_doChangePassword',
-            [
-                'OldPassword' => '23u90oijlJKsa',
-                'NewPassword1' => 'newpassword123',
-                'NewPassword2' => 'newpassword123'
-            ]
+            $passwordData
         );
-        $this->assertEquals(200, $page->getStatusCode(), 'a page should load');
 
-        $memberAuthenticator = new MemberAuthenticator;
-        $validationResult = $memberAuthenticator->checkPassword($member, 'newpassword123');
-        $this->assertTrue(
-            $validationResult->isValid(),
-            'Password should have changed'
-        );
+        $this->assertEquals(200, $changeResponse->getStatusCode(), 'change password response should be 200');
+
+        $freshMember = Member::get()->byID($member->ID);
+        $memberAuthenticator = new MemberAuthenticator();
+        $validationResult = $memberAuthenticator->checkPassword($freshMember, 'newpassword123!?');
+        $this->assertTrue($validationResult->isValid(), 'Password should have changed');
     }
 }

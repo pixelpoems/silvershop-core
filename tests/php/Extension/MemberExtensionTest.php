@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace SilverShop\Tests\Extension;
 
 use SilverShop\Cart\ShoppingCart;
@@ -12,7 +14,7 @@ use SilverStripe\Security\Member;
 /**
  * Test member functionality added via ShopMember extension
  */
-class MemberExtensionTest extends SapphireTest
+final class MemberExtensionTest extends SapphireTest
 {
     public static $fixture_file = [
         __DIR__ . '/../Fixtures/ShopMembers.yml',
@@ -28,9 +30,7 @@ class MemberExtensionTest extends SapphireTest
         $this->assertEquals('Jeremy', $member->FirstName);
     }
 
-    /**
-     * @doesNotPerformAssertions
-     */
+    #[\PHPUnit\Framework\Attributes\DoesNotPerformAssertions]
     public function testCMSFields(): void
     {
         singleton(Member::class)->getCMSFields();

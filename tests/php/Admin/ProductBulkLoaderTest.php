@@ -1,16 +1,26 @@
 <?php
 
+declare(strict_types=1);
+
 namespace SilverShop\Tests\Admin;
 
 use SilverShop\Admin\ProductBulkLoader;
 use SilverShop\Page\Product;
 use SilverStripe\Dev\FunctionalTest;
 
-class ProductBulkLoaderTest extends FunctionalTest
+final class ProductBulkLoaderTest extends FunctionalTest
 {
     public static $fixture_file   = __DIR__ . '/../Fixtures/shop.yml';
+
     public static $disable_theme  = true;
+
     protected static $use_draft_site = true;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->mainSession->session()->set('readingMode', 'Stage.Stage');
+    }
 
     public function testLoad(): void
     {
@@ -20,15 +30,15 @@ class ProductBulkLoaderTest extends FunctionalTest
         $filepath = realpath(__DIR__ . $ds . 'test_products.csv');
         $file = fopen($filepath, 'r');
 
-        fgetcsv($file); // pop header row
-        fgetcsv($file);
+        fgetcsv($file, escape: ''); // pop header row
+        fgetcsv($file, escape: '');
         $results = $productBulkLoader->load($filepath);
 
         // Test that right amount of columns was imported
         $this->assertEquals(13, $results->Count(), 'Test correct count of imported data');
 
         // Test that columns were correctly imported
-        $obj = Product::get()->filter('Title', 'Socks')->first();
+        $obj = Product::get()->filter(['Title' => 'Socks'])->first();
         $this->assertNotNull($obj, "New product exists");
         $this->assertEquals("<p>The comfiest pair of socks you'll ever own.</p>", $obj->Content, "Content matches");
         $this->assertEquals(12, $obj->BasePrice, "Checking price matches.");

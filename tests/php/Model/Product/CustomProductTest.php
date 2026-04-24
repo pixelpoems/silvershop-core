@@ -1,15 +1,18 @@
 <?php
 
+declare(strict_types=1);
+
 namespace SilverShop\Tests\Model\Product;
 
 use SilverShop\Cart\ShoppingCart;
+use SilverStripe\Core\Config\Config;
 use SilverStripe\Dev\FunctionalTest;
 
 /**
  * @package    shop
  * @subpackage tests
  */
-class CustomProductTest extends FunctionalTest
+final class CustomProductTest extends FunctionalTest
 {
     protected static $use_draft_site = true;
 
@@ -18,57 +21,78 @@ class CustomProductTest extends FunctionalTest
         CustomProduct_OrderItem::class,
     ];
 
-    public function setUp(): void
+    public static function setUpBeforeClass(): void
     {
+        parent::setUpBeforeClass();
+        static::applyConfig();
+        \SilverStripe\ORM\DataObject::getSchema()->reset();
+        static::resetDBSchema(true, true);
+    }
+
+    protected function setUp(): void
+    {
+        static::applyConfig();
+        \SilverStripe\ORM\DataObject::getSchema()->reset();
         parent::setUp();
-        // clear session
+        $this->mainSession->session()->set('readingMode', 'Stage.Stage');
         ShoppingCart::singleton()->clear();
+    }
+
+    private static function applyConfig(): void
+    {
+        Config::modify()->merge(CustomProduct_OrderItem::class, 'has_one', [
+            'CustomProduct' => CustomProduct::class,
+            'Recipient'     => \SilverStripe\Security\Member::class,
+        ]);
+        Config::modify()->set(CustomProduct_OrderItem::class, 'db', [
+            'Color'   => "Enum('Red,Green,Blue','Red')",
+            'Size'    => 'Int',
+            'Premium' => 'Boolean',
+        ]);
+        Config::modify()->set(CustomProduct_OrderItem::class, 'table_name', 'SilverShop_Test_CustomProduct_OrderItem');
+        Config::modify()->set(CustomProduct_OrderItem::class, 'required_fields', ['Color', 'Size', 'Premium', 'Recipient']);
+        Config::modify()->set(CustomProduct_OrderItem::class, 'buyable_relationship', 'CustomProduct');
     }
 
     public function testCustomProduct(): void
     {
-        $customProduct = CustomProduct::create()->update(
-            [
-                "Title" => "Thing",
-                "Price" => 30,
-            ]
-        );
+        $customProduct = CustomProduct::create()->update(['Title' => 'Thing', 'Price' => 30]);
         $customProduct->write();
 
         $shoppingCart = ShoppingCart::singleton();
 
         $options1 = ['Color' => 'Green', 'Size' => 5, 'Premium' => true];
-        $this->assertTrue((bool)$shoppingCart->add($customProduct, 1, $options1), "add to customisation 1 to cart");
+        $this->assertTrue((bool)$shoppingCart->add($customProduct, 1, $options1), 'add to customisation 1 to cart');
         $item = $shoppingCart->get($customProduct, $options1);
 
-        $this->assertTrue((bool)$item, "item with customisation 1 exists");
+        $this->assertTrue((bool)$item, 'item with customisation 1 exists');
         $this->assertEquals(1, $item->Quantity);
 
-        $this->assertTrue((bool)$shoppingCart->add($customProduct, 2, $options1), "add another two customisation 1");
+        $this->assertTrue((bool)$shoppingCart->add($customProduct, 2, $options1), 'add another two customisation 1');
         $item = $shoppingCart->get($customProduct, $options1);
-        $this->assertEquals(3, $item->Quantity, "quantity has updated correctly");
-        $this->assertEquals("Green", $item->Color);
+        $this->assertEquals(3, $item->Quantity, 'quantity has updated correctly');
+        $this->assertEquals('Green', $item->Color);
         $this->assertEquals(5, $item->Size);
-        $this->assertEquals(1, $item->Premium); //should be true?
+        $this->assertEquals(1, $item->Premium);
 
-        $this->assertFalse((bool)$shoppingCart->get($customProduct), "try to get a non-customised product");
+        $this->assertFalse((bool)$shoppingCart->get($customProduct), 'try to get a non-customised product');
 
         $options2 = ['Color' => 'Blue', 'Size' => 6, 'Premium' => false];
-        $this->assertTrue((bool)$shoppingCart->add($customProduct, 5, $options2), "add customisation 2 to cart");
+        $this->assertTrue((bool)$shoppingCart->add($customProduct, 5, $options2), 'add customisation 2 to cart');
         $item = $shoppingCart->get($customProduct, $options2);
-        $this->assertTrue((bool)$item, "item with customisation 2 exists");
+        $this->assertTrue((bool)$item, 'item with customisation 2 exists');
         $this->assertEquals(5, $item->Quantity);
 
         $options3 = ['Color' => 'Blue'];
-        $this->assertTrue((bool)$shoppingCart->add($customProduct, 1, $options3), "add a sub-variant of customisation 2");
+        $this->assertTrue((bool)$shoppingCart->add($customProduct, 1, $options3), 'add a sub-variant of customisation 2');
         $item = $shoppingCart->get($customProduct, $options3);
 
-        $this->assertTrue((bool)$shoppingCart->add($customProduct), "add product with no customisation");
+        $this->assertTrue((bool)$shoppingCart->add($customProduct), 'add product with no customisation');
         $item = $shoppingCart->get($customProduct);
 
         $order = $shoppingCart->current();
         $hasManyList = $order->Items();
-        $this->assertEquals(4, $hasManyList->Count(), "4 items in cart");
+        $this->assertEquals(4, $hasManyList->Count(), '4 items in cart');
 
         //remove
         $shoppingCart->remove($customProduct, 2, $options2);
@@ -85,10 +109,8 @@ class CustomProductTest extends FunctionalTest
         $item = $shoppingCart->get($customProduct, $options4);
         $this->assertTrue((bool)$item, 'item exists in cart');
 
-        $this->assertEquals(5, $item->Quantity, "quantity is 5");
+        $this->assertEquals(5, $item->Quantity, 'quantity is 5');
 
-        $this->markTestIncomplete("what about default values that have been set");
-        //test by using urls
-        //add a partial match
+        $this->markTestIncomplete('what about default values that have been set');
     }
 }

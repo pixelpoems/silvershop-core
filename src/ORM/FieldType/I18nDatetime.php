@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace SilverShop\ORM\FieldType;
 
 use SilverStripe\ORM\FieldType\DBDatetime;
@@ -10,14 +12,28 @@ use SilverStripe\ORM\FieldType\DBDatetime;
 class I18nDatetime extends DBDatetime
 {
     /**
+     * Override DBDatetime::now() to return the correct static type.
+     * DBDatetime::now() uses DBField::create_field() internally which always returns a DBDatetime
+     * instance, violating the `static` return type contract under PHP 8+ strict typing.
+     */
+    public static function now(): static
+    {
+        $time = DBDatetime::$mock_now ? DBDatetime::$mock_now->getValue() : time();
+        $now = new static();
+        $now->setValue($time);
+        return $now;
+    }
+
+    /**
      * Returns the datetime in the format given in the lang file
      * 'SilverShop\Generic.DateTimeFormatNice'. Defaults to 'm/d/Y h:i A'
      */
-    public function Nice(): ?string
+    public function Nice(): string
     {
         if (!$this->value) {
-            return null;
+            return '';
         }
+
         return date(
             _t('SilverShop\Generic.DateTimeFormatNice', 'm/d/Y h:i A'),
             $this->getTimestamp()
@@ -33,6 +49,7 @@ class I18nDatetime extends DBDatetime
         if (!$this->value) {
             return null;
         }
+
         return date(
             _t('SilverShop\Generic.DateFormatNice', 'm/d/Y'),
             $this->getTimestamp()
@@ -48,6 +65,7 @@ class I18nDatetime extends DBDatetime
         if (!$this->value) {
             return null;
         }
+
         return date(
             _t('SilverShop\Generic.DateTimeFormatNice24', 'd/m/Y H:i'),
             $this->getTimestamp()
