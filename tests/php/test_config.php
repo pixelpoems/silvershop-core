@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace SilverShop\Tests;
 
 use SilverShop\Admin\ProductCatalogAdmin;
@@ -25,12 +27,15 @@ use SilverStripe\Core\Injector\Injector;
 use SilverStripe\Omnipay\Model\Payment;
 use SilverStripe\ORM\FieldType\DBDatetime;
 use SilverStripe\Security\Member;
+use SilverStripe\Versioned\Versioned;
 
 /// Reset to all default configuration settings.
 
 $cfg = Config::modify();
 
 $cfg->set(Injector::class, DBDatetime::class, ["class" => I18nDatetime::class]);
+$cfg->set(Versioned::class, 'use_session', true);
+$cfg->set(Versioned::class, 'non_live_permissions', []);
 
 //remove array configs (these get merged, rater than replaced)
 

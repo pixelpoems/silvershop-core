@@ -1,7 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace SilverShop\Page;
 
+use SilverStripe\Forms\Validation\RequiredFieldsValidator;
 use SilverShop\Extension\OrderManipulationExtension;
 use PageController;
 use SilverShop\Forms\ShopAccountForm;
@@ -14,7 +17,6 @@ use SilverStripe\Forms\FieldList;
 use SilverStripe\Forms\Form;
 use SilverStripe\Forms\FormAction;
 use SilverStripe\Forms\HiddenField;
-use SilverStripe\Forms\RequiredFields;
 use SilverStripe\Security\Member;
 use SilverStripe\Security\MemberAuthenticator\ChangePasswordForm;
 use SilverStripe\Security\MemberAuthenticator\ChangePasswordHandler;
@@ -41,6 +43,8 @@ class AccountPageController extends PageController
         'deleteaddress',
         'setdefaultbilling',
         'setdefaultshipping',
+        'ActionsForm' => true,
+        'order'       => true,
     ];
 
     /**
@@ -48,13 +52,16 @@ class AccountPageController extends PageController
      */
     protected $member;
 
-    public function init(): void
+    protected function init(): void
     {
         parent::init();
 
         $this->member = Security::getCurrentUser();
 
-        if (!$this->member) {
+        // Allow guests to reach order confirmation and ActionsForm (e.g. after guest checkout).
+        // Note: getAction() is not available during init() — the action is resolved later in handleAction().
+        // param('Action') is used instead, which is already populated by ModelAsController before init() runs.
+        if (!$this->member && !in_array($this->getRequest()->param('Action'), ['order', 'ActionsForm'])) {
             $messages = [
                 'default' => _t(
                     'SilverShop\Page\AccountPage.Login',
@@ -76,6 +83,7 @@ class AccountPageController extends PageController
         if ($this->dataRecord && $title = $this->dataRecord->Title) {
             return $title;
         }
+
         return _t('SilverShop\Page\AccountPage.DefaultTitle', 'Account');
     }
 
@@ -140,7 +148,7 @@ class AccountPageController extends PageController
         $fieldList = FieldList::create(
             FormAction::create('saveaddress', _t('SilverShop\Model\Address.SaveNew', 'Save New Address'))
         );
-        $requiredFields = RequiredFields::create($singletonaddress->getRequiredFields());
+        $requiredFields = RequiredFieldsValidator::create($singletonaddress->getRequiredFields());
         $form = Form::create($this, 'CreateAddressForm', $fields, $fieldList, $requiredFields);
         $this->extend('updateCreateAddressForm', $form);
         return $form;
@@ -164,10 +172,12 @@ class AccountPageController extends PageController
             $member->DefaultShippingAddressID = $address->ID;
             $member->write();
         }
+
         if (!$member->DefaultBillingAddressID) {
             $member->DefaultBillingAddressID = $address->ID;
             $member->write();
         }
+
         $form->sessionMessage(_t('SilverShop\Model\Address.AddressSaved', 'Your address has been saved'), 'good');
 
         $response = null;
@@ -190,11 +200,12 @@ class AccountPageController extends PageController
         return SecurityToken::inst()->addToUrl($link);
     }
 
-    function deleteaddress(HTTPRequest$httpRequest): ?HTTPResponse
+    public function deleteaddress(HTTPRequest$httpRequest): ?HTTPResponse
     {
         if (!SecurityToken::inst()->checkRequest($httpRequest)) {
             return $this->httpError(400);
         }
+
         // NOTE: we don't want to fully delete the address because it's presumably still
         // attached to an order. Setting MemberID to 0 means it won't show up in the address
         // book any longer.
@@ -205,6 +216,7 @@ class AccountPageController extends PageController
         } else {
             return $this->httpError(404, 'Address not found');
         }
+
         return $this->redirectBack();
     }
 
@@ -217,16 +229,18 @@ class AccountPageController extends PageController
         return SecurityToken::inst()->addToUrl($link);
     }
 
-    function setdefaultbilling(HTTPRequest $httpRequest): HTTPResponse
+    public function setdefaultbilling(HTTPRequest $httpRequest): HTTPResponse
     {
         if (!SecurityToken::inst()->checkRequest($httpRequest)) {
             return $this->httpError(400);
         }
+
         $address = $this->member->AddressBook()->byID((int) $httpRequest->param('ID'));
         if ($address) {
             $this->member->DefaultBillingAddressID = $address->ID;
             $this->member->write();
         }
+
         return $this->redirectBack();
     }
 
@@ -239,16 +253,18 @@ class AccountPageController extends PageController
         return SecurityToken::inst()->addToUrl($link);
     }
 
-    function setdefaultshipping(HTTPRequest $httpRequest): HTTPResponse
+    public function setdefaultshipping(HTTPRequest $httpRequest): HTTPResponse
     {
         if (!SecurityToken::inst()->checkRequest($httpRequest)) {
             return $this->httpError(400);
         }
+
         $address = $this->member->AddressBook()->byID((int) $httpRequest->param('ID'));
         if ($address) {
             $this->member->DefaultShippingAddressID = $address->ID;
             $this->member->write();
         }
+
         return $this->redirectBack();
     }
 
@@ -262,24 +278,27 @@ class AccountPageController extends PageController
 
     public function ChangePasswordForm(): ChangePasswordForm
     {
-        /**
-         * @var ChangePasswordHandler $handler
-         */
+        /** @var ChangePasswordHandler $handler */
         $handler = Injector::inst()->get(MemberAuthenticator::class)->getChangePasswordHandler($this->Link());
         $handler->setRequest($this->getRequest());
-        /**
-         * @var ChangePasswordForm $changePasswordForm
-         */
+
+        /** @var ChangePasswordForm $changePasswordForm */
         $changePasswordForm = $handler->changePasswordForm();
 
-        // The default form tries to redirect to /account/login which doesn't exist
+        // SS 6.1+: ConfirmedPasswordField named "Password" with setRequireExistingPassword()
+        // SS 6.0:  flat fields OldPassword / NewPassword1 / NewPassword2 — no action needed
+        $passwordField = $changePasswordForm->Fields()->fieldByName('Password');
+        if ($passwordField && method_exists($passwordField, 'setRequireExistingPassword')) {
+            $passwordField->setRequireExistingPassword(true);
+        }
+
+        // Ensure BackURL redirects back to editprofile rather than /account/login
         $backURL = $changePasswordForm->Fields()->fieldByName('BackURL');
         if (!$backURL) {
             $backURL = HiddenField::create('BackURL', 'BackURL');
             $changePasswordForm->Fields()->push($backURL);
         }
         $backURL->setValue($this->Link('editprofile'));
-
 
         $this->extend('updateChangePasswordForm', $changePasswordForm);
 

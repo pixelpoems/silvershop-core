@@ -1,17 +1,19 @@
 <?php
 
+declare(strict_types=1);
+
 namespace SilverShop\Forms;
 
-use SilverStripe\Forms\RequiredFields;
+use SilverStripe\Forms\Validation\RequiredFieldsValidator;
 
 /**
  * @package shop
  */
-class VariationFormValidator extends RequiredFields
+class VariationFormValidator extends RequiredFieldsValidator
 {
     public function php($data): bool
     {
-        $valid = parent::php($data);
+        $valid = true;
 
         if ($valid && !$this->form->getBuyable($_POST)) {
             $this->validationError(

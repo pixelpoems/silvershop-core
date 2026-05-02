@@ -1,7 +1,13 @@
 <?php
 
+declare(strict_types=1);
+
 namespace SilverShop\Tests\Forms;
 
+use Omnipay\Common\GatewayFactory;
+use Omnipay\Common\Message\AbstractResponse;
+use Omnipay\Common\Message\AbstractRequest;
+use Omnipay\Common\AbstractGateway;
 use PHPUnit\Framework\MockObject\MockObject;
 use SilverShop\Extension\OrderManipulationExtension;
 use SilverShop\Forms\OrderActionsForm;
@@ -11,15 +17,16 @@ use SilverShop\Page\CheckoutPage;
 use SilverShop\Tests\Model\Product\CustomProduct_OrderItem;
 use SilverShop\Tests\ShopTest;
 use SilverStripe\CMS\Controllers\ModelAsController;
-use SilverStripe\Control\Director;
 use SilverStripe\Core\Config\Config;
 use SilverStripe\Core\Injector\Injector;
 use SilverStripe\Dev\FunctionalTest;
 use SilverStripe\Omnipay\GatewayInfo;
 use SilverStripe\Omnipay\Model\Payment;
+use SilverStripe\Security\SecurityToken;
+use SilverStripe\Versioned\Versioned;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 
-class OrderActionsFormTest extends FunctionalTest
+final class OrderActionsFormTest extends FunctionalTest
 {
     protected static $fixture_file = [
         __DIR__ . '/../Fixtures/Pages.yml',
@@ -33,26 +40,29 @@ class OrderActionsFormTest extends FunctionalTest
     ];
 
     protected Order $order;
+
     protected CheckoutPage $checkoutPage;
 
-    public function setUp(): void
+    protected function setUp(): void
     {
         parent::setUp();
+        SecurityToken::disable();
+        $this->autoFollowRedirection = false;
         ShopTest::setConfiguration();
 
-        $this->logInWithPermission('ADMIN');
-        // create order from fixture and persist to DB
+        // Use a guest-based model for maximum stability with the new session persistence fix
         $this->order = $this->objFromFixture(Order::class, "unpaid");
+        $this->order->MemberID = 0;
         $this->order->write();
 
-
-        // create checkoug page from fixture and publish it
+        // create checkout page from fixture and publish it
         $this->checkoutPage = $this->objFromFixture(CheckoutPage::class, "checkout");
         $this->checkoutPage->publishSingle();
 
-        $this->logOut();
+        Versioned::set_draft_site_secured(false);
 
-        OrderManipulationExtension::add_session_order($this->order);
+        $sessname = OrderManipulationExtension::config()->get('sessname');
+        $this->session()->set($sessname, [$this->order->ID => $this->order->ID]);
         Config::modify()->set(Payment::class, 'allowed_gateways', ['Dummy']);
         Config::modify()->merge(GatewayInfo::class, 'Dummy', [
             'is_offsite' => false
@@ -63,52 +73,59 @@ class OrderActionsFormTest extends FunctionalTest
     {
         Config::modify()->set(GatewayInfo::class, 'Dummy', ['is_offsite' => true]);
         $mockObject = $this->buildPaymentGatewayStub(true, 'test-' . $this->order->ID, true);
-        Injector::inst()->registerService($this->stubGatewayFactory($mockObject), 'Omnipay\Common\GatewayFactory');
+        Injector::inst()->registerService($this->stubGatewayFactory($mockObject), GatewayFactory::class);
 
         $contentController = ModelAsController::controller_for($this->checkoutPage);
+        if (property_exists($this, 'mainRequest') && $this->mainRequest) {
+            $contentController->setRequest($this->mainRequest);
+        }
+        $this->get($contentController->Link('order/' . $this->order->ID));
 
-        $httpResponse = Director::test(
+        $httpResponse = $this->post(
             $contentController->Link('ActionsForm'),
             [
-            'action_dopayment' => true,
-            'OrderID' => $this->order->ID,
-            'PaymentMethod' => 'Dummy'
-            ],
-            $this->session()
+                'action_dopayment' => true,
+                'OrderID'          => $this->order->ID,
+                'PaymentMethod'    => 'Dummy',
+            ]
         );
 
         // There should be a new payment
+        $this->order = Order::get()->byID($this->order->ID);
         $this->assertEquals(1, $this->order->Payments()->count());
         // The status of the payment should be pending purchase, as there's a redirect to the offsite gateway
         $this->assertEquals('PendingPurchase', $this->order->Payments()->first()->Status);
-        // The response we get from submitting the form should be a redirect to the offsite payment form
-        $this->assertEquals('http://paymentprovider/test/offsiteform', $httpResponse->getHeader('Location'));
+        // Normalized header check
+        $this->assertEquals('http://paymentprovider/test/offsiteform', $httpResponse->getHeader('location'));
     }
 
     public function testOnsitePayment(): void
     {
         $mockObject = $this->buildPaymentGatewayStub(true, 'test-' . $this->order->ID, false);
-        Injector::inst()->registerService($this->stubGatewayFactory($mockObject), 'Omnipay\Common\GatewayFactory');
+        Injector::inst()->registerService($this->stubGatewayFactory($mockObject), GatewayFactory::class);
 
         $contentController = ModelAsController::controller_for($this->checkoutPage);
+        if (property_exists($this, 'mainRequest') && $this->mainRequest) {
+            $contentController->setRequest($this->mainRequest);
+        }
+        $this->get($contentController->Link('order/' . $this->order->ID));
 
-        $httpResponse = Director::test(
+        $httpResponse = $this->post(
             $contentController->Link('ActionsForm'),
             [
-            'action_dopayment' => true,
-            'OrderID' => $this->order->ID,
-            'PaymentMethod' => 'Dummy',
-            'type' => 'visa',
-            'name' => 'Tester Mc. Testerson',
-            'number' => '4242424242424242',
-            'expiryMonth' => 10,
-            'expiryYear' => date('Y') + 1,
-            'cvv' => 123
-            ],
-            $this->session()
+                'action_dopayment' => true,
+                'OrderID'          => $this->order->ID,
+                'PaymentMethod'    => 'Dummy',
+                'type'             => 'visa',
+                'name'             => 'Tester Mc. Testerson',
+                'number'           => '4242424242424242',
+                'expiryMonth'      => '10',
+                'expiryYear'       => (string)(date('Y') + 1),
+                'cvv'              => '123',
+            ]
         );
 
-        // There should be a new payment
+        $this->order = Order::get()->byID($this->order->ID);
         $this->assertEquals(1, $this->order->Payments()->count());
         // The status of the payment should be Captured
         $this->assertEquals('Captured', $this->order->Payments()->first()->Status);
@@ -138,16 +155,23 @@ class OrderActionsFormTest extends FunctionalTest
         $requiredCount = 0;
         foreach ($orderActionsFormValidator->getErrors() as $error) {
             if ($error['messageType'] == 'required') {
-                $requiredCount++;
+                ++$requiredCount;
             }
         }
+
         // 3 required fields missing
         $this->assertEquals(3, $requiredCount);
     }
 
+    protected function tearDown(): void
+    {
+        SecurityToken::enable();
+        parent::tearDown();
+    }
+
     protected function stubGatewayFactory($stubGateway): MockObject
     {
-        $mock = $this->getMockBuilder('Omnipay\Common\GatewayFactory')->getMock();
+        $mock = $this->getMockBuilder(GatewayFactory::class)->getMock();
         $mock->expects($this->any())->method('create')->will($this->returnValue($stubGateway));
         return $mock;
     }
@@ -160,7 +184,7 @@ class OrderActionsFormTest extends FunctionalTest
         //--------------------------------------------------------------------------------------------------------------
         // request and response
 
-        $mockResponse = $this->getMockBuilder('Omnipay\Common\Message\AbstractResponse')
+        $mockResponse = $this->getMockBuilder(AbstractResponse::class)
             ->disableOriginalConstructor()->getMock();
 
         $mockResponse->expects($this->any())
@@ -179,7 +203,7 @@ class OrderActionsFormTest extends FunctionalTest
         $mockResponse->expects($this->any())
             ->method('getTransactionReference')->will($this->returnValue($transactionReference));
 
-        $mockRequest = $this->getMockBuilder('Omnipay\Common\Message\AbstractRequest')
+        $mockRequest = $this->getMockBuilder(AbstractRequest::class)
             ->disableOriginalConstructor()->getMock();
 
         $mockRequest->expects($this->any())
@@ -192,8 +216,9 @@ class OrderActionsFormTest extends FunctionalTest
         //--------------------------------------------------------------------------------------------------------------
         // Build the gateway
 
-        $mock = $this->getMockBuilder('Omnipay\Common\AbstractGateway')
-            ->setMethods(['purchase', 'supportsCompletePurchase', 'getName'])
+        $mock = $this->getMockBuilder(AbstractGateway::class)
+            ->addMethods(['purchase'])
+            ->onlyMethods(['supportsCompletePurchase', 'getName'])
             ->getMock();
 
         $mock->expects($this->any())

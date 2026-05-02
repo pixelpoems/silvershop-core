@@ -1,7 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace SilverShop\Page;
 
+use SilverStripe\Model\ModelData;
 use SilverShop\Extension\OrderManipulationExtension;
 use PageController;
 use SilverShop\Cart\ShoppingCart;
@@ -44,6 +47,8 @@ class CheckoutPageController extends PageController
         'OrderForm',
         'payment',
         'PaymentForm',
+        'ActionsForm' => true,
+        'order'       => true,
     ];
 
     private static array $steps = [];
@@ -52,7 +57,7 @@ class CheckoutPageController extends PageController
 
     public function Title(): string
     {
-        if ($this->failover && $this->failover->Title) {
+        if ($this->failover instanceof ModelData && $this->failover->Title) {
             return $this->failover->Title;
         }
 
@@ -138,7 +143,7 @@ class CheckoutPageController extends PageController
             return false;
         }
 
-        $lastPayment = $order->Payments()->sort('Created', 'DESC')->first();
+        $lastPayment = $order->Payments()->sort(['Created' => 'DESC'])->first();
         if (!$lastPayment) {
             return false;
         }
@@ -151,6 +156,7 @@ class CheckoutPageController extends PageController
                 break;
             }
         }
+
         if (!$lastErrorMessage instanceof GatewayErrorMessage) {
             return false;
         }
@@ -169,6 +175,7 @@ class CheckoutPageController extends PageController
         if (CheckoutPage::config()->first_step && $action == 'index') {
             $action = CheckoutPage::config()->first_step;
         }
+
         return parent::getViewer($action);
     }
 }
